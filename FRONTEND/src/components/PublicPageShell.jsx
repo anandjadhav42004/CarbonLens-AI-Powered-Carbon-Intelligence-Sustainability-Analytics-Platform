@@ -15,52 +15,54 @@ const PublicPageShell = ({ active, children }) => {
     <div className="min-h-screen bg-white text-on-surface font-inter overflow-x-hidden relative">
       <div className="grain-overlay"></div>
 
-      <header className="sticky top-0 z-50 bg-white/85 backdrop-blur-md border-b border-outline-variant/50">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-4 flex justify-between items-center gap-6">
-          <Link to="/" className="font-literata text-2xl font-bold italic text-primary">
-            CarbonLens
-          </Link>
-          <nav className="hidden md:flex items-center gap-7 font-mono text-[11px] uppercase tracking-wider">
-            {navItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={
-                  active === item.name
-                    ? 'text-primary font-bold border-b-2 border-primary pb-1'
-                    : 'text-secondary hover:text-primary transition-colors'
-                }
-              >
-                {item.name}
+      <header className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-7xl rounded-full border border-outline-variant bg-white/80 backdrop-blur-md shadow-soft flex justify-between items-center px-6 md:px-8 py-3.5 z-50">
+        <Link to="/" className="font-literata text-2xl font-bold italic text-primary">
+          CarbonLens
+        </Link>
+        <nav className="hidden md:flex items-center gap-8 font-medium">
+          {navItems.map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={
+                active === item.name
+                  ? 'text-primary font-bold border-b-2 border-primary pb-0.5'
+                  : 'text-secondary hover:text-primary transition-colors font-medium'
+              }
+            >
+              {item.name}
+            </Link>
+          ))}
+        </nav>
+        <div className="flex items-center gap-4">
+          {user ? (
+            <div className="flex items-center gap-3">
+              <Link to="/profile" className="flex items-center gap-2">
+                <img 
+                  alt="Curator Avatar" 
+                  className="w-8 h-8 rounded-full border border-outline-variant object-cover" 
+                  src={user.avatar} 
+                />
+                <span className="hidden sm:inline font-mono text-[11px] uppercase tracking-wider text-primary font-bold">{user.name}</span>
               </Link>
-            ))}
-          </nav>
-          <div className="flex items-center gap-3">
-            {user ? (
-              <Link
-                to="/dashboard"
-                className="bg-primary text-white px-5 py-2.5 rounded-full font-semibold text-sm hover:shadow-md active:scale-95 transition-all"
-              >
-                Dashboard
+            </div>
+          ) : (
+            <>
+              <Link to="/login" className="text-on-surface font-semibold text-sm px-3 py-2">
+                Login
               </Link>
-            ) : (
-              <>
-                <Link to="/login" className="text-on-surface font-semibold text-sm px-2 py-2">
-                  Login
-                </Link>
-                <Link
-                  to="/register"
-                  className="bg-primary text-white px-5 py-2.5 rounded-full font-semibold text-sm hover:shadow-md active:scale-95 transition-all"
-                >
-                  Get Started
-                </Link>
-              </>
-            )}
-          </div>
+              <Link
+                to="/register"
+                className="bg-primary text-white px-5 py-2 rounded-full font-semibold text-sm hover:shadow-md active:scale-95 transition-all"
+              >
+                Get Started
+              </Link>
+            </>
+          )}
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 md:px-10 py-12 md:py-16">
+      <main className="max-w-7xl mx-auto px-6 md:px-10 pt-28 pb-12 md:pt-36 md:pb-16">
         {children}
       </main>
 

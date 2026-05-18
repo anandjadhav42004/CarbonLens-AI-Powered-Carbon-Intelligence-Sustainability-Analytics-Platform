@@ -15,9 +15,9 @@ const LandingPage = () => {
           <Link to="/features" className="text-secondary hover:text-primary transition-colors font-medium">Features</Link>
           {user ? (
             <>
-              <Link to="/dashboard" className="text-secondary hover:text-primary transition-colors font-medium">Dashboard</Link>
-              <Link to="/calculator" className="text-secondary hover:text-primary transition-colors font-medium">Calculator</Link>
               <Link to="/insights" className="text-secondary hover:text-primary transition-colors font-medium">Insights</Link>
+              <Link to="/community" className="text-secondary hover:text-primary transition-colors font-medium">Community</Link>
+              <Link to="/leaderboard" className="text-secondary hover:text-primary transition-colors font-medium">Leaderboard</Link>
             </>
           ) : (
             <>
@@ -36,9 +36,6 @@ const LandingPage = () => {
                   src={user.avatar} 
                 />
                 <span className="hidden sm:inline font-mono text-[11px] uppercase tracking-wider text-primary font-bold">{user.name}</span>
-              </Link>
-              <Link to="/dashboard" className="bg-primary text-white px-5 py-2 rounded-full font-semibold text-sm hover:shadow-md transition-all active:scale-95">
-                Go to Dashboard
               </Link>
             </div>
           ) : (
