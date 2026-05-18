@@ -20,19 +20,51 @@ const PublicPageShell = ({ active, children }) => {
           CarbonLens
         </Link>
         <nav className="hidden md:flex items-center gap-8 font-medium">
-          {navItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={
-                active === item.name
-                  ? 'text-primary font-bold border-b-2 border-primary pb-0.5'
-                  : 'text-secondary hover:text-primary transition-colors font-medium'
-              }
-            >
-              {item.name}
-            </Link>
-          ))}
+          <Link
+            to="/features"
+            className={`text-secondary hover:text-primary transition-colors font-medium ${
+              active === 'Features' ? 'text-primary font-bold border-b-2 border-primary pb-0.5' : ''
+            }`}
+          >
+            Features
+          </Link>
+          {user ? (
+            <>
+              <Link
+                to="/insights"
+                className={`text-secondary hover:text-primary transition-colors font-medium ${
+                  active === 'Insights' ? 'text-primary font-bold border-b-2 border-primary pb-0.5' : ''
+                }`}
+              >
+                Insights
+              </Link>
+              <Link
+                to="/community"
+                className={`text-secondary hover:text-primary transition-colors font-medium ${
+                  active === 'Community' ? 'text-primary font-bold border-b-2 border-primary pb-0.5' : ''
+                }`}
+              >
+                Community
+              </Link>
+              <Link
+                to="/leaderboard"
+                className={`text-secondary hover:text-primary transition-colors font-medium ${
+                  active === 'Leaderboard' ? 'text-primary font-bold border-b-2 border-primary pb-0.5' : ''
+                }`}
+              >
+                Leaderboard
+              </Link>
+            </>
+          ) : (
+            <>
+              <a href="/#about" className="text-secondary hover:text-primary transition-colors font-medium">
+                About
+              </a>
+              <a href="/#metrics" className="text-secondary hover:text-primary transition-colors font-medium">
+                Metrics
+              </a>
+            </>
+          )}
         </nav>
         <div className="flex items-center gap-4">
           {user ? (
@@ -73,11 +105,19 @@ const PublicPageShell = ({ active, children }) => {
             <p className="text-secondary text-sm">Precision in Sustainability.</p>
           </div>
           <div className="flex flex-wrap gap-6 text-sm text-secondary">
-            {navItems.map((item) => (
-              <Link key={item.path} to={item.path} className="hover:text-primary">
-                {item.name}
-              </Link>
-            ))}
+            <Link to="/features" className="hover:text-primary">Features</Link>
+            {user ? (
+              <>
+                <Link to="/insights" className="hover:text-primary">Insights</Link>
+                <Link to="/community" className="hover:text-primary">Community</Link>
+                <Link to="/leaderboard" className="hover:text-primary">Leaderboard</Link>
+              </>
+            ) : (
+              <>
+                <a href="/#about" className="hover:text-primary">About</a>
+                <a href="/#metrics" className="hover:text-primary">Metrics</a>
+              </>
+            )}
           </div>
         </div>
       </footer>
