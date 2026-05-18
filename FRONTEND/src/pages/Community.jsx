@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAuth } from '../context/useAuth';
 import toast from 'react-hot-toast';
+import { api } from '../services/api';
+import { useRealtimeSnapshot } from '../hooks/useRealtimeSnapshot';
 
-const communityMetrics = [
+const fallbackCommunityMetrics = [
   { icon: 'eco', label: 'Reforestation Progress', value: '14,204 Hectares', detail: '+12% vs LY' },
   { icon: 'bolt', label: 'Renewable Adoption', value: '88.4 GW Tracked', detail: 'Active Now' },
   { icon: 'group', label: 'Community Campaigns', value: '2,840 Successes', detail: 'Global Reach' },
@@ -10,7 +12,15 @@ const communityMetrics = [
 
 const Community = () => {
   const { user } = useAuth();
-  
+  const { snapshot, status, refresh } = useRealtimeSnapshot();
+  const communityMetrics = snapshot?.community?.metrics || fallbackCommunityMetrics;
+  const challenge = snapshot?.community?.challenge;
+  const circles = snapshot?.community?.circles || [
+    { name: 'Boreal Initiative', members: '1.2k members', icon: 'forest', joined: true },
+    { name: 'Urban Canopy Project', members: '840 members', icon: 'park', joined: false },
+    { name: 'Agri-Carbon Tech', members: '412 members', icon: 'agriculture', joined: false }
+  ];
+
   // Newsfeed posts
   const [posts, setPosts] = useState([
     {
@@ -35,34 +45,102 @@ const Community = () => {
       liked: false,
     }
   ]);
+  const displayedPosts = snapshot?.community?.posts?.length
+    ? snapshot.community.posts.map((post) => ({ ...post, liked: false }))
+    : posts;
 
   // Form state
   const [newPostContent, setNewPostContent] = useState('');
+  const fileInputRef = useRef(null);
+  const [attachment, setAttachment] = useState(null);
+  const [commentsPost, setCommentsPost] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [commentText, setCommentText] = useState('');
+  const [joinedCircles, setJoinedCircles] = useState(new Set(circles.filter((circle) => circle.joined).map((circle) => circle.name)));
 
-  const handleCreatePost = (e) => {
+  const handleCreatePost = async (e) => {
     e.preventDefault();
     if (!newPostContent.trim()) {
       toast.error('Post content cannot be empty.');
       return;
     }
 
-    const newPost = {
-      id: Math.random().toString(),
-      author: user ? user.name : 'Dr. Aris Thorne',
-      avatar: user ? user.avatar : 'https://lh3.googleusercontent.com/aida-public/AB6AXuAddBDSnyKnzhYahgwnfatZ7VdfRC_UIXC-nI_W0BIZU2TleAP5l24hSPBVRhEomyyjrkoxX8Jh1JbvUNkm3-u25x2X2qwNK7FYVaEzhUm1J2ABEUucA5xLclzjOLbPrmmMFF9AVniCj4t5cDEBywYQUar8aR01kJngHztCNQSteT4bsY9_zMImAA4N03Kqm_lobbhQfQ5hbvrOR0V33uHL4iDHC3LHW_Jz4jfa5fGOMbUdpr_o8sLrHFX6aJxLyTZVt6B-li2xZJ0',
-      role: user ? user.tier : 'Apex Restorationist',
-      date: 'Just now',
-      content: newPostContent,
-      likes: 0,
-      liked: false
-    };
-
-    setPosts([newPost, ...posts]);
-    setNewPostContent('');
-    toast.success('Journal update published to the global ledger network.');
+    try {
+      const newPost = await api.createCommunityPost({
+        author: user ? user.name : 'CarbonLens Visitor',
+        avatar: user?.avatar,
+        role: user ? user.tier : 'Public Contributor',
+        content: newPostContent,
+        image: attachment?.url,
+      });
+      setPosts([{ ...newPost, liked: false }, ...posts]);
+      setNewPostContent('');
+      setAttachment(null);
+      toast.success('Journal update published to the live network.');
+      refresh();
+    } catch {
+      toast.error('Backend is offline. Post was not published.');
+    }
   };
 
-  const handleLike = (id) => {
+  const handleAttachment = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploaded = await api.uploadCommunityAttachment(formData);
+      setAttachment(uploaded);
+      toast.success('Attachment uploaded and ready to publish.');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const openComments = async (post) => {
+    setCommentsPost(post);
+    try {
+      setComments(await api.getComments(post.id));
+    } catch {
+      setComments([]);
+    }
+  };
+
+  const submitComment = async () => {
+    if (!commentText.trim() || !commentsPost) return;
+    const optimistic = {
+      _id: `local-${Date.now()}`,
+      author: user?.name || 'CarbonLens Member',
+      comment: commentText,
+      createdAt: new Date().toISOString(),
+    };
+    setComments([...comments, optimistic]);
+    setCommentText('');
+    try {
+      await api.createComment({
+        postId: commentsPost.id,
+        userId: user?.id || 'demo-user',
+        author: user?.name || 'CarbonLens Member',
+        comment: optimistic.comment,
+      });
+    } catch {
+      toast.error('Comment saved locally only.');
+    }
+  };
+
+  const joinCircle = async (circle) => {
+    setJoinedCircles(new Set([...joinedCircles, circle.name]));
+    try {
+      await api.joinCircle({ userId: user?.id || 'demo-user', circleId: circle.name });
+      toast.success(`Joined ${circle.name}`);
+    } catch {
+      toast.error('Membership saved locally only.');
+    }
+  };
+
+  const handleLike = async (id) => {
     setPosts(posts.map(p => {
       if (p.id === id) {
         return {
@@ -73,15 +151,29 @@ const Community = () => {
       }
       return p;
     }));
+
+    if (!String(id).startsWith('seed-')) {
+      try {
+        await api.likeCommunityPost(id);
+        refresh();
+      } catch {
+        toast.error('Could not sync like to backend.');
+      }
+    }
   };
 
   return (
     <div className="flex-1 flex flex-col gap-8 text-left relative z-20">
-      
+
       {/* Header */}
       <div className="border-b border-outline-variant/30 pb-6">
         <h2 className="font-literata text-3xl md:text-4xl font-bold text-primary">Global Curator Network</h2>
-        <p className="text-secondary text-sm mt-1">Connect, collaborate, and share verified botanical and ecological telemetry updates.</p>
+        <p className="text-secondary text-sm mt-1">
+          Connect, collaborate, and share verified botanical and ecological telemetry updates.
+          <span className="font-mono text-[10px] uppercase tracking-wider text-primary ml-2">
+            {status === 'live' ? 'Live' : 'Backend Offline'}
+          </span>
+        </p>
       </div>
 
       {/* Imported community impact widgets */}
@@ -102,10 +194,10 @@ const Community = () => {
 
       {/* Main Grid: Feed vs Clubs */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
+
         {/* Newsfeed Columns (Left 7 Cols) */}
         <div className="lg:col-span-7 flex flex-col gap-6">
-          
+
           {/* Create Post Card */}
           <div className="bg-white border border-outline-variant rounded-3xl p-6 shadow-soft text-left">
             <h4 className="font-literata text-lg font-bold text-primary mb-3">Publish Field Update</h4>
@@ -118,13 +210,15 @@ const Community = () => {
                 placeholder="Share seasonal telemetry data, soil indices or carbon calculations..."
               />
               <div className="flex justify-between items-center">
-                <button 
-                  type="button" 
-                  onClick={() => toast.success('Telemetry files attached.')}
+                <input ref={fileInputRef} type="file" className="hidden" onChange={handleAttachment} />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
                   className="p-2 border border-outline-variant rounded-xl hover:bg-surface-container text-secondary flex items-center justify-center"
                 >
                   <span className="material-symbols-outlined text-sm">attachment</span>
                 </button>
+                {attachment && <span className="text-[10px] text-primary font-mono truncate max-w-[160px]">{attachment.fileName}</span>}
                 <button
                   type="submit"
                   className="bg-primary text-white px-5 py-2.5 rounded-full font-bold text-xs hover:bg-primary-container active:scale-95 transition-all shadow-soft"
@@ -137,14 +231,14 @@ const Community = () => {
 
           {/* Posts List */}
           <div className="space-y-6">
-            {posts.map((post) => (
+            {displayedPosts.map((post) => (
               <div key={post.id} className="bg-white border border-outline-variant rounded-3xl p-6 shadow-soft flex flex-col gap-4 text-left">
                 <div className="flex justify-between items-start">
                   <div className="flex items-center gap-3">
-                    <img 
-                      alt={post.author} 
-                      className="w-10 h-10 rounded-full border border-outline-variant object-cover" 
-                      src={post.avatar} 
+                    <img
+                      alt={post.author}
+                      className="w-10 h-10 rounded-full border border-outline-variant object-cover"
+                      src={post.avatar}
                     />
                     <div>
                       <h4 className="font-semibold text-sm text-on-surface">{post.author}</h4>
@@ -167,17 +261,16 @@ const Community = () => {
                 )}
 
                 <div className="flex items-center gap-4 pt-3 border-t border-outline-variant/10 text-xs">
-                  <button 
+                  <button
                     onClick={() => handleLike(post.id)}
-                    className={`flex items-center gap-1.5 transition-colors ${
-                      post.liked ? 'text-primary font-bold' : 'text-secondary hover:text-primary'
-                    }`}
+                    className={`flex items-center gap-1.5 transition-colors ${post.liked ? 'text-primary font-bold' : 'text-secondary hover:text-primary'
+                      }`}
                   >
                     <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: post.liked ? "'FILL' 1" : "'FILL' 0" }}>favorite</span>
                     <span>{post.likes}</span>
                   </button>
-                  <button 
-                    onClick={() => toast.success('Mock comments triggered.')}
+                  <button
+                    onClick={() => openComments(post)}
                     className="flex items-center gap-1.5 text-secondary hover:text-primary"
                   >
                     <span className="material-symbols-outlined text-sm">chat_bubble</span>
@@ -191,26 +284,26 @@ const Community = () => {
 
         {/* Missions and Research Circles (Right 5 Cols) */}
         <div className="lg:col-span-5 flex flex-col gap-6">
-          
+
           {/* Weekly Mission Commuter challenge */}
           <div className="bg-white border border-outline-variant rounded-3xl p-6 shadow-soft text-left relative overflow-hidden">
             <div className="absolute top-0 right-0 p-4">
               <span className="material-symbols-outlined text-primary/10 text-5xl font-bold">trophy</span>
             </div>
-            
+
             <span className="font-mono text-[9px] uppercase tracking-wider text-primary font-bold bg-primary/5 px-2.5 py-1 rounded-full">
               Weekly Challenge
             </span>
-            <h4 className="font-literata text-lg font-bold text-primary mt-3 mb-2">Boreal Commuter Quest</h4>
+            <h4 className="font-literata text-lg font-bold text-primary mt-3 mb-2">{challenge?.title || 'Boreal Commuter Quest'}</h4>
             <p className="text-secondary text-xs leading-relaxed mb-4">
-              Accumulate less than 15kg CO₂e on daily transit emissions for 7 consecutive days.
+              {challenge?.description || 'Accumulate less than 15kg CO2e on daily transit emissions for 7 consecutive days.'}
             </p>
             <div className="h-2 w-full bg-surface-container rounded-full overflow-hidden mb-2">
-              <div className="h-full bg-primary" style={{ width: '80%' }}></div>
+              <div className="h-full bg-primary" style={{ width: `${challenge?.progress || 80}%` }}></div>
             </div>
             <div className="flex justify-between items-center text-[10px] text-outline font-mono uppercase font-bold">
-              <span>Progress: 5/7 Days</span>
-              <span className="text-primary">+50 Eco-Index</span>
+              <span>Progress: {challenge?.label || '5/7 Days'}</span>
+              <span className="text-primary">{challenge?.reward || '+50 Eco-Index'}</span>
             </div>
           </div>
 
@@ -218,11 +311,7 @@ const Community = () => {
           <div className="bg-white border border-outline-variant rounded-3xl p-6 shadow-soft text-left">
             <h4 className="font-literata text-base font-bold text-primary mb-4">Research Circles</h4>
             <div className="space-y-4">
-              {[
-                { name: 'Boreal Initiative', members: '1.2k members', icon: 'forest', joined: true },
-                { name: 'Urban Canopy Project', members: '840 members', icon: 'park', joined: false },
-                { name: 'Agri-Carbon Tech', members: '412 members', icon: 'agriculture', joined: false }
-              ].map((circle) => (
+              {circles.map((circle) => (
                 <div key={circle.name} className="flex justify-between items-center gap-4">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 bg-primary/5 border border-outline-variant/30 rounded-xl flex items-center justify-center">
@@ -233,15 +322,14 @@ const Community = () => {
                       <span className="font-mono text-[9px] text-outline">{circle.members}</span>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => toast.success(`Mock Joined: ${circle.name}`)}
-                    className={`px-3 py-1 text-[10px] font-bold rounded-lg border font-mono uppercase ${
-                      circle.joined 
-                        ? 'border-primary/20 bg-primary/5 text-primary' 
-                        : 'border-outline-variant hover:bg-surface-container text-secondary'
-                    }`}
+                  <button
+                    onClick={() => joinCircle(circle)}
+                    className={`px-3 py-1 text-[10px] font-bold rounded-lg border font-mono uppercase ${joinedCircles.has(circle.name)
+                      ? 'border-primary/20 bg-primary/5 text-primary'
+                      : 'border-outline-variant hover:bg-surface-container text-secondary'
+                      }`}
                   >
-                    {circle.joined ? 'Joined' : 'Join'}
+                    {joinedCircles.has(circle.name) ? 'Joined' : 'Join'}
                   </button>
                 </div>
               ))}
@@ -249,6 +337,31 @@ const Community = () => {
           </div>
         </div>
       </div>
+      {commentsPost && (
+        <div className="fixed inset-0 bg-black/20 z-50 flex justify-end">
+          <div className="w-full max-w-md bg-white h-full p-6 shadow-luxury flex flex-col">
+            <div className="flex justify-between items-center border-b border-outline-variant/30 pb-4 mb-4">
+              <h3 className="font-literata text-xl font-bold text-primary">Comments</h3>
+              <button onClick={() => setCommentsPost(null)} className="text-secondary hover:text-primary">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-3">
+              {comments.length === 0 && <p className="text-secondary text-xs">No comments yet. Start the discussion.</p>}
+              {comments.map((comment) => (
+                <div key={comment._id} className="p-3 rounded-2xl bg-surface-container-low">
+                  <p className="font-bold text-xs text-primary">{comment.author}</p>
+                  <p className="text-xs text-on-surface mt-1">{comment.comment}</p>
+                </div>
+              ))}
+            </div>
+            <div className="pt-4 border-t border-outline-variant/30 flex gap-2">
+              <input value={commentText} onChange={(e) => setCommentText(e.target.value)} className="flex-1 px-3 py-2 rounded-xl border border-outline-variant/40 text-xs focus:outline-none" placeholder="Write a comment..." />
+              <button onClick={submitComment} className="px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold">Send</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

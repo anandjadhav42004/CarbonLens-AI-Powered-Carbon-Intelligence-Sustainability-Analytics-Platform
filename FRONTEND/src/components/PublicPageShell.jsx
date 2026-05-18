@@ -1,13 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 
-const navItems = [
-  { name: 'Features', path: '/features' },
-  { name: 'Insights', path: '/insights' },
-  { name: 'Community', path: '/community' },
-  { name: 'Leaderboard', path: '/leaderboard' },
-];
-
 const PublicPageShell = ({ active, children }) => {
   const { user } = useAuth();
 
@@ -57,12 +50,22 @@ const PublicPageShell = ({ active, children }) => {
             </>
           ) : (
             <>
-              <a href="/#about" className="text-secondary hover:text-primary transition-colors font-medium">
-                About
-              </a>
-              <a href="/#metrics" className="text-secondary hover:text-primary transition-colors font-medium">
-                Metrics
-              </a>
+              <Link
+                to="/community"
+                className={`text-secondary hover:text-primary transition-colors font-medium ${
+                  active === 'Community' ? 'text-primary font-bold border-b-2 border-primary pb-0.5' : ''
+                }`}
+              >
+                Community
+              </Link>
+              <Link
+                to="/insights"
+                className={`text-secondary hover:text-primary transition-colors font-medium ${
+                  active === 'Insights' ? 'text-primary font-bold border-b-2 border-primary pb-0.5' : ''
+                }`}
+              >
+                Insights
+              </Link>
             </>
           )}
         </nav>
@@ -114,8 +117,8 @@ const PublicPageShell = ({ active, children }) => {
               </>
             ) : (
               <>
-                <a href="/#about" className="hover:text-primary">About</a>
-                <a href="/#metrics" className="hover:text-primary">Metrics</a>
+                <Link to="/community" className="hover:text-primary">Community</Link>
+                <Link to="/insights" className="hover:text-primary">Insights</Link>
               </>
             )}
           </div>

@@ -1,11 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/useAuth';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from 'recharts';
 import toast from 'react-hot-toast';
+import { api, getAuthToken } from '../services/api';
 
 const Dashboard = () => {
   const { user, setUser } = useAuth();
+  const [liveSummary, setLiveSummary] = useState(null);
+  const [liveStatus, setLiveStatus] = useState(getAuthToken() ? 'syncing' : 'preview');
   
   // State for mock log ledger
   const [logs, setLogs] = useState([
@@ -31,11 +47,99 @@ const Dashboard = () => {
     { day: 'Sun', average: 10.1, you: 4.8 },
   ];
 
-  // Calculated totals
-  const totalOffset = logs.reduce((acc, curr) => acc + Math.abs(curr.value), 0).toFixed(1);
-  const pendingCount = logs.filter(l => l.status === 'Pending Verification').length;
+  const fallbackMonthlyData = [
+    { month: 'Jan', emissions: 412, offsets: 82 },
+    { month: 'Feb', emissions: 388, offsets: 94 },
+    { month: 'Mar', emissions: 354, offsets: 128 },
+    { month: 'Apr', emissions: 331, offsets: 142 },
+    { month: 'May', emissions: 302, offsets: 171 },
+    { month: 'Jun', emissions: 276, offsets: 196 },
+  ];
 
-  const handleAddLog = (e) => {
+  const fallbackCategoryBreakdown = [
+    { name: 'Transport', value: 108, color: '#274a31' },
+    { name: 'Electricity', value: 74, color: '#3E6247' },
+    { name: 'Diet', value: 52, color: '#7A8F55' },
+    { name: 'Flights', value: 28, color: '#A35C44' },
+    { name: 'Shopping', value: 22, color: '#C8A97E' },
+    { name: 'Waste', value: 9, color: '#8b7355' },
+  ];
+
+  const palette = ['#274a31', '#3E6247', '#7A8F55', '#A35C44', '#C8A97E', '#8b7355'];
+  const monthlyData = liveSummary?.monthlyTrend?.length ? liveSummary.monthlyTrend : fallbackMonthlyData;
+  const categoryBreakdown = liveSummary?.categoryBreakdown?.length
+    ? liveSummary.categoryBreakdown.map((item, index) => ({ ...item, color: palette[index % palette.length] }))
+    : fallbackCategoryBreakdown;
+
+  const offsetGoal = 250;
+  const currentOffsets = liveSummary?.currentOffsets ?? monthlyData[monthlyData.length - 1].offsets;
+  const offsetPercent = Math.min(Math.round((currentOffsets / offsetGoal) * 100), 100);
+  const currentMonth = monthlyData[monthlyData.length - 1];
+  const previousMonth = monthlyData[monthlyData.length - 2];
+  const monthlyReduction = previousMonth.emissions - currentMonth.emissions;
+  const savedThisWeek = liveSummary?.savedThisWeek ?? weeklyData
+    .reduce((acc, item) => acc + Math.max(item.average - item.you, 0), 0)
+    .toFixed(1);
+  const topCategory = liveSummary?.topCategory
+    ? { name: liveSummary.topCategory.name, value: liveSummary.topCategory.value }
+    : categoryBreakdown.reduce((top, item) => (item.value > top.value ? item : top), categoryBreakdown[0]);
+
+  useEffect(() => {
+    if (!getAuthToken()) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const fetchSummary = async () => {
+      try {
+        const summary = await api.getEmissionSummary();
+        if (cancelled) return;
+        setLiveSummary(summary);
+        setLiveStatus('live');
+        if (summary.history?.length) {
+          setLogs(summary.history.map((entry) => ({
+            id: entry.id,
+            date: new Date(entry.date).toISOString().split('T')[0],
+            category: entry.category,
+            title: `${entry.category} estimate`,
+            value: -Math.abs(Number(entry.amountKg || entry.totalCO2 || 0)),
+            status: entry.estimatedBy === 'carbon_interface' ? 'Verified' : 'Local Factor',
+          })));
+        }
+      } catch {
+        if (!cancelled) setLiveStatus('offline');
+      }
+    };
+
+    const fetchLedger = async () => {
+      try {
+        const entries = await api.getUserLedger(user?.id || 'demo-user');
+        if (!cancelled && entries?.length) {
+          setLogs(entries.map((entry) => ({
+            id: entry._id || entry.id,
+            date: new Date(entry.timestamp || entry.createdAt || Date.now()).toISOString().split('T')[0],
+            category: entry.category,
+            title: entry.action,
+            value: -Math.abs(Number(entry.carbonValue || 0)),
+            status: 'Verified',
+          })));
+        }
+      } catch {
+        // Existing preview logs remain available if the ledger API is offline.
+      }
+    };
+
+    fetchSummary();
+    fetchLedger();
+    const timer = setInterval(fetchSummary, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [user?.id]);
+
+  const handleAddLog = async (e) => {
     e.preventDefault();
     if (!title || !value) {
       toast.error('Please enter both entry title and carbon value.');
@@ -59,6 +163,17 @@ const Dashboard = () => {
     };
 
     setLogs([newLog, ...logs]);
+    try {
+      await api.createLedgerEntry({
+        userId: user?.id || 'demo-user',
+        action: title,
+        category,
+        carbonValue: Math.abs(valNum),
+        sustainabilityScore: Math.max(0, Math.round(100 - Math.abs(valNum) * 4)),
+      });
+    } catch {
+      toast.error('Ledger saved locally, but backend persistence is offline.');
+    }
     
     // Increment EcoIndex slightly for visual feedback
     if (user) {
@@ -84,7 +199,12 @@ const Dashboard = () => {
         <div className="flex items-center gap-3">
           <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Ledger Sync</span>
           <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse"></div>
-          <span className="font-mono text-[11px] uppercase tracking-wider text-primary font-bold bg-primary/5 px-3 py-1 rounded-full">Station 04 Active</span>
+          <span className="font-mono text-[11px] uppercase tracking-wider text-primary font-bold bg-primary/5 px-3 py-1 rounded-full">
+            {liveStatus === 'live' && 'Live Backend'}
+            {liveStatus === 'syncing' && 'Syncing Backend'}
+            {liveStatus === 'offline' && 'Backend Offline'}
+            {liveStatus === 'preview' && 'Preview Data'}
+          </span>
         </div>
       </div>
 
@@ -92,48 +212,122 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-soft hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex justify-between items-start mb-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Emissions Today</span>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Emissions This Month</span>
             <span className="material-symbols-outlined text-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>eco</span>
           </div>
           <div>
-            <h3 className="font-mono text-2xl font-bold text-primary">8.5 kg</h3>
+            <h3 className="font-mono text-2xl font-bold text-primary">{currentMonth.emissions} kg</h3>
             <div className="flex items-center gap-1.5 text-secondary text-xs mt-1">
               <span className="material-symbols-outlined text-sm text-[#A35C44]">trending_down</span>
-              <span>32% lower than regional average</span>
+              <span>{monthlyReduction} kg lower than last month</span>
             </div>
           </div>
         </div>
 
         <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-soft hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex justify-between items-start mb-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Total Sequestration</span>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Saved This Week</span>
             <span className="material-symbols-outlined text-primary text-xl">forest</span>
           </div>
           <div>
-            <h3 className="font-mono text-2xl font-bold text-primary">{totalOffset} kg</h3>
-            <p className="text-secondary text-xs mt-1">Accumulated verified ledger entries</p>
+            <h3 className="font-mono text-2xl font-bold text-primary">{savedThisWeek} kg</h3>
+            <p className="text-secondary text-xs mt-1">Against regional daily baseline</p>
           </div>
         </div>
 
         <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-soft hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex justify-between items-start mb-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Eco-Index Score</span>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Offset Progress</span>
             <span className="material-symbols-outlined text-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
           </div>
           <div>
-            <h3 className="font-mono text-2xl font-bold text-primary">{user ? user.ecoIndex : 942}</h3>
-            <p className="text-secondary text-xs mt-1">+15 earned this cycle</p>
+            <h3 className="font-mono text-2xl font-bold text-primary">{offsetPercent}%</h3>
+            <p className="text-secondary text-xs mt-1">{currentOffsets} kg of {offsetGoal} kg monthly goal</p>
           </div>
         </div>
 
         <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-soft hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex justify-between items-start mb-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Pending Approvals</span>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Largest Category</span>
             <span className="material-symbols-outlined text-primary text-xl">schedule</span>
           </div>
           <div>
-            <h3 className="font-mono text-2xl font-bold text-primary">{pendingCount}</h3>
-            <p className="text-secondary text-xs mt-1">Telemetry verifications in progress</p>
+            <h3 className="font-mono text-2xl font-bold text-primary">{topCategory.name}</h3>
+            <p className="text-secondary text-xs mt-1">{topCategory.value} kg CO2e this month</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Real Dashboard Data */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+        <div className="xl:col-span-7 bg-white border border-outline-variant rounded-3xl p-6 md:p-8 shadow-soft">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-6">
+            <div>
+              <h3 className="font-literata text-xl font-bold text-primary">Monthly Emissions Trend</h3>
+              <p className="text-secondary text-xs">CO2e movement against verified offsets over the current cycle.</p>
+            </div>
+            <span className="font-mono text-[9px] uppercase tracking-wider text-outline bg-surface-container px-2 py-0.5 rounded">6 Month View</span>
+          </div>
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={monthlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f4ede1" />
+                <XAxis dataKey="month" tick={{ fontSize: 10, fontFamily: 'monospace' }} />
+                <YAxis tick={{ fontSize: 10, fontFamily: 'monospace' }} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #E7E7E7', fontFamily: 'Inter' }}
+                  labelStyle={{ fontWeight: 'bold', color: '#274a31' }}
+                />
+                <Area type="monotone" name="Emissions" dataKey="emissions" stroke="#A35C44" fill="#A35C44" fillOpacity={0.14} strokeWidth={2} />
+                <Area type="monotone" name="Offsets" dataKey="offsets" stroke="#274a31" fill="#274a31" fillOpacity={0.16} strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="xl:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-8">
+          <div className="bg-white border border-outline-variant rounded-3xl p-6 shadow-soft">
+            <div className="flex justify-between items-start mb-5">
+              <div>
+                <h3 className="font-literata text-xl font-bold text-primary">Offset Goal</h3>
+                <p className="text-secondary text-xs">Monthly restoration progress</p>
+              </div>
+              <span className="font-mono text-xs font-bold text-primary">{offsetPercent}%</span>
+            </div>
+            <div className="h-3 rounded-full bg-surface-container-low overflow-hidden mb-4">
+              <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${offsetPercent}%` }}></div>
+            </div>
+            <div className="flex justify-between text-xs text-secondary">
+              <span>{currentOffsets} kg offset</span>
+              <span>{offsetGoal - currentOffsets} kg remaining</span>
+            </div>
+          </div>
+
+          <div className="bg-white border border-outline-variant rounded-3xl p-6 shadow-soft">
+            <h3 className="font-literata text-xl font-bold text-primary mb-1">Category Breakdown</h3>
+            <p className="text-secondary text-xs mb-5">Current month emissions by source.</p>
+            <div className="h-52">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={categoryBreakdown} dataKey="value" nameKey="name" innerRadius={50} outerRadius={78} paddingAngle={3}>
+                    {categoryBreakdown.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #E7E7E7', fontFamily: 'Inter' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {categoryBreakdown.map((entry) => (
+                <div key={entry.name} className="flex items-center gap-2 text-xs text-secondary">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }}></span>
+                  <span>{entry.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

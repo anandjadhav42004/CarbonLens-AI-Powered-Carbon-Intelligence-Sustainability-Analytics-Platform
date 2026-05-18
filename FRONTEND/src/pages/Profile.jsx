@@ -1,22 +1,53 @@
 import { useState } from 'react';
 import { useAuth } from '../context/useAuth';
 import toast from 'react-hot-toast';
+import { useRealtimeSnapshot } from '../hooks/useRealtimeSnapshot';
+import { api } from '../services/api';
 
 const Profile = () => {
   const { user, setUser } = useAuth();
+  const { snapshot, status } = useRealtimeSnapshot();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(user ? user.name : 'Dr. Aris Thorne');
   const [location, setLocation] = useState(user ? user.location : 'Amazon Basin Reserve IV');
   const [tier, setTier] = useState(user ? user.tier : 'Apex Restorationist');
+  const [bio, setBio] = useState(user?.bio || '');
+  const [avatarFile, setAvatarFile] = useState(null);
+  const milestones = snapshot?.profile?.milestones || [
+    { name: 'Soil Restorer', tier: 'Tier III', icon: 'energy_savings_leaf', color: 'text-yellow-800' },
+    { name: 'Forest Guardian', tier: 'Founding Member', icon: 'forest', color: 'text-primary' },
+    { name: 'Carbon Neutral', tier: 'In Progress', icon: 'co2', color: 'text-outline', disabled: true }
+  ];
+  const meters = snapshot?.profile?.meters || [
+    { name: 'Biodiversity Density', value: 82, color: 'jade-gradient' },
+    { name: 'Carbon Sequestration', value: 64, color: 'bg-primary' },
+    { name: 'Community Network', value: 91, color: 'bg-secondary' }
+  ];
+  const streak = snapshot?.profile?.streak || 22;
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
+    let savedProfile = {};
+    try {
+      const formData = new FormData();
+      formData.append('id', user?.id || 'demo-user');
+      formData.append('name', name);
+      formData.append('bio', bio);
+      formData.append('organization', location);
+      formData.append('sustainabilityGoals', tier);
+      if (avatarFile) formData.append('avatar', avatarFile);
+      savedProfile = await api.updateProfile(formData);
+    } catch {
+      toast.error('Profile saved locally only.');
+    }
     if (user) {
       setUser({
         ...user,
         name,
         location,
-        tier
+        tier,
+        bio,
+        avatar: savedProfile.avatar ? `http://127.0.0.1:5001${savedProfile.avatar}` : user.avatar,
       });
     }
     setEditing(false);
@@ -30,7 +61,12 @@ const Profile = () => {
       <div className="border-b border-outline-variant/30 pb-6 flex justify-between items-center">
         <div>
           <h2 className="font-literata text-3xl md:text-4xl font-bold text-primary">Eco Passport Vault</h2>
-          <p className="text-secondary text-sm mt-1">Official authenticated sustainability profile credentials and verified curator achievements.</p>
+          <p className="text-secondary text-sm mt-1">
+            Official authenticated sustainability profile credentials and verified curator achievements.
+            <span className="font-mono text-[10px] uppercase tracking-wider text-primary ml-2">
+              {status === 'live' ? 'Live' : 'Backend Offline'}
+            </span>
+          </p>
         </div>
       </div>
 
@@ -89,6 +125,14 @@ const Profile = () => {
                       className="w-full px-3 py-2 bg-white/80 border border-outline-variant/30 rounded-xl text-xs focus:outline-none"
                     />
                   </div>
+                  <div>
+                    <label className="font-mono text-[9px] uppercase tracking-wider text-outline block mb-1">Bio</label>
+                    <textarea value={bio} onChange={(e) => setBio(e.target.value)} className="w-full px-3 py-2 bg-white/80 border border-outline-variant/30 rounded-xl text-xs focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="font-mono text-[9px] uppercase tracking-wider text-outline block mb-1">Avatar</label>
+                    <input type="file" onChange={(e) => setAvatarFile(e.target.files?.[0] || null)} className="w-full text-xs" />
+                  </div>
                   <div className="flex gap-2 pt-2">
                     <button type="submit" className="flex-1 py-2 bg-primary text-white font-bold text-xs rounded-xl shadow-soft">Save</button>
                     <button type="button" onClick={() => setEditing(false)} className="flex-1 py-2 border border-outline-variant bg-white text-secondary text-xs rounded-xl">Cancel</button>
@@ -139,14 +183,10 @@ const Profile = () => {
           <div className="bg-white border border-outline-variant rounded-3xl p-6 md:p-8 shadow-soft text-left">
             <div className="flex justify-between items-end mb-6 border-b border-outline-variant/30 pb-4">
               <h3 className="font-literata text-xl font-bold text-primary">Curator Milestones</h3>
-              <span className="font-mono text-[10px] text-outline uppercase">12 / 24 Collected</span>
+              <span className="font-mono text-[10px] text-outline uppercase">{milestones.filter((item) => !item.disabled).length} / {milestones.length} Active</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              {[
-                { name: 'Soil Restorer', tier: 'Tier III', icon: 'energy_savings_leaf', color: 'text-yellow-800' },
-                { name: 'Forest Guardian', tier: 'Founding Member', icon: 'forest', color: 'text-primary' },
-                { name: 'Carbon Neutral', tier: 'In Progress', icon: 'co2', color: 'text-outline', disabled: true }
-              ].map((m) => (
+              {milestones.map((m) => (
                 <div 
                   key={m.name} 
                   className={`flex flex-col items-center p-4 bg-surface-container-low border border-outline-variant/30 rounded-2xl text-center hover:shadow-sm transition-all ${
@@ -178,7 +218,7 @@ const Profile = () => {
               <div className="relative z-10 w-7 h-7 rounded-full jade-gradient flex items-center justify-center text-white font-mono text-[9px] font-bold">1</div>
               <div className="relative z-10 w-7 h-7 rounded-full jade-gradient flex items-center justify-center text-white font-mono text-[9px] font-bold">5</div>
               <div className="relative z-10 w-7 h-7 rounded-full jade-gradient flex items-center justify-center text-white font-mono text-[9px] font-bold">10</div>
-              <div className="relative z-10 w-10 h-10 rounded-full border-2 border-white jade-gradient shadow-md flex items-center justify-center text-white font-mono text-[10px] font-bold">22</div>
+              <div className="relative z-10 w-10 h-10 rounded-full border-2 border-white jade-gradient shadow-md flex items-center justify-center text-white font-mono text-[10px] font-bold">{streak}</div>
               <div className="relative z-10 w-7 h-7 rounded-full bg-surface-container border border-outline-variant flex items-center justify-center text-secondary font-mono text-[9px] font-bold">25</div>
               <div className="relative z-10 w-7 h-7 rounded-full bg-surface-container border border-outline-variant flex items-center justify-center text-secondary font-mono text-[9px] font-bold">30</div>
             </div>
@@ -192,11 +232,7 @@ const Profile = () => {
           <div className="bg-white border border-outline-variant rounded-3xl p-6 md:p-8 shadow-soft text-left">
             <h3 className="font-literata text-lg font-bold text-primary mb-6">Restoration Meters</h3>
             <div className="space-y-6">
-              {[
-                { name: 'Biodiversity Density', value: 82, color: 'jade-gradient' },
-                { name: 'Carbon Sequestration', value: 64, color: 'bg-primary' },
-                { name: 'Community Network', value: 91, color: 'bg-secondary' }
-              ].map((meter) => (
+              {meters.map((meter) => (
                 <div key={meter.name}>
                   <div className="flex justify-between items-end mb-2 text-xs">
                     <span className="font-medium text-on-surface">{meter.name}</span>

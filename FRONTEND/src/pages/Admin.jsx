@@ -1,8 +1,16 @@
 import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
+import { useRealtimeSnapshot } from '../hooks/useRealtimeSnapshot';
+import { api } from '../services/api';
+import { downloadCsv, downloadSimplePdf } from '../utils/report';
 
 const Admin = () => {
+  const { snapshot, status } = useRealtimeSnapshot();
+  const [chartMode, setChartMode] = useState('Quarterly');
+  const [newEntryOpen, setNewEntryOpen] = useState(false);
+  const [entryForm, setEntryForm] = useState({ organization: '', emissionData: '', status: 'Pending', category: '', remarks: '' });
+
   // Moderation entries
   const [moderationList, setModerationList] = useState([
     { id: '1', date: '2023.10.24 14:02', title: 'Reforest Station B-4', sector: 'Sequestration', credits: '1,240', status: 'Verified', icon: 'park' },
@@ -11,7 +19,7 @@ const Admin = () => {
   ]);
 
   // Pillar monthly analytics data
-  const growthData = [
+  const fallbackGrowthData = [
     { month: 'JAN', amount: 40 },
     { month: 'FEB', amount: 65 },
     { month: 'MAR', amount: 55 },
@@ -19,15 +27,73 @@ const Admin = () => {
     { month: 'MAY', amount: 70 },
     { month: 'JUN', amount: 95 },
   ];
+  const adminMetrics = snapshot?.admin?.metrics || [
+    { title: 'Total Active Users', value: '84,293', change: '+12.4%', icon: 'groups' },
+    { title: 'Active Station Units', value: '12,402', change: '+3.1%', icon: 'bolt' },
+    { title: 'System Carbon Offset', value: '2.4M tCO2e', change: '+45.8%', icon: 'eco' },
+    { title: 'Ledger Audit Score', value: '94/100', change: 'Elite Tier', icon: 'verified' }
+  ];
+  const growthData = snapshot?.admin?.growthData?.length ? snapshot.admin.growthData : fallbackGrowthData;
+  const chartData = chartMode === 'Monthly'
+    ? growthData
+    : growthData.reduce((acc, item, index) => {
+      const bucket = Math.floor(index / 3);
+      acc[bucket] = acc[bucket] || { month: `Q${bucket + 1}`, amount: 0 };
+      acc[bucket].amount += item.amount || item.emissions || 0;
+      return acc;
+    }, []);
+  const displayedModerationList = snapshot?.admin?.moderationList?.length ? snapshot.admin.moderationList : moderationList;
 
-  const handleAuditStatus = (id, newStatus) => {
+  const handleAuditStatus = async (id, newStatus) => {
     setModerationList(moderationList.map(entry => {
       if (entry.id === id) {
         return { ...entry, status: newStatus };
       }
       return entry;
     }));
-    toast.success(`Entry status updated to: ${newStatus}`);
+    try {
+      if (newStatus === 'Verified') await api.verifyAdminEntry(id);
+      else await api.flagAdminEntry(id);
+      toast.success(`Entry status updated to: ${newStatus}`);
+    } catch {
+      toast.error('Status updated locally only.');
+    }
+  };
+
+  const createEntry = async (event) => {
+    event.preventDefault();
+    try {
+      const entry = await api.createAdminEntry(entryForm);
+      setModerationList([{
+        id: entry._id,
+        date: new Date(entry.createdAt || Date.now()).toLocaleString(),
+        title: entry.organization,
+        sector: entry.category,
+        credits: entry.emissionData,
+        status: entry.status,
+        icon: 'eco',
+      }, ...moderationList]);
+      setNewEntryOpen(false);
+      setEntryForm({ organization: '', emissionData: '', status: 'Pending', category: '', remarks: '' });
+      toast.success('Administrative audit entry created.');
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const exportAudit = () => {
+    downloadSimplePdf('CarbonLens_Audit_Report.pdf', [
+      'CarbonLens Audit Report',
+      `Generated: ${new Date().toLocaleString()}`,
+      `Entries: ${displayedModerationList.length}`,
+      `Verified: ${displayedModerationList.filter((entry) => entry.status === 'Verified').length}`,
+      `Flagged: ${displayedModerationList.filter((entry) => entry.status === 'Flagged').length}`,
+    ]);
+    downloadCsv('CarbonLens_Audit_Report.csv', [
+      ['Date', 'Subject', 'Type', 'Credits', 'Status'],
+      ...displayedModerationList.map((entry) => [entry.date, entry.title, entry.sector, entry.credits, entry.status]),
+    ]);
+    toast.success('Exported audit report.');
   };
 
   return (
@@ -37,7 +103,12 @@ const Admin = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-outline-variant/30 pb-6">
         <div>
           <h2 className="font-literata text-3xl md:text-4xl font-bold text-primary">Sustainability Administration</h2>
-          <p className="text-secondary text-sm mt-1">Lead Curators master management console and carbon asset auditing protocol.</p>
+          <p className="text-secondary text-sm mt-1">
+            Lead Curators master management console and carbon asset auditing protocol.
+            <span className="font-mono text-[10px] uppercase tracking-wider text-primary ml-2">
+              {status === 'live' ? 'Live' : 'Backend Offline'}
+            </span>
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[10px] text-primary font-bold">STATION_01_ACTIVE</span>
@@ -47,12 +118,7 @@ const Admin = () => {
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {[
-          { title: 'Total Active Users', value: '84,293', change: '+12.4%', icon: 'groups' },
-          { title: 'Active Station Units', value: '12,402', change: '+3.1%', icon: 'bolt' },
-          { title: 'System Carbon Offset', value: '2.4M tCO2e', change: '+45.8%', icon: 'eco' },
-          { title: 'Ledger Audit Score', value: '94/100', change: 'Elite Tier', icon: 'verified' }
-        ].map((m) => (
+        {adminMetrics.map((m) => (
           <div key={m.title} className="bg-white border border-outline-variant rounded-[24px] p-6 shadow-soft hover:shadow-md transition-all flex flex-col justify-between">
             <div className="flex justify-between items-start mb-4">
               <span className="font-mono text-[9px] uppercase tracking-wider text-outline">{m.title}</span>
@@ -77,14 +143,21 @@ const Admin = () => {
               <p className="text-secondary text-xs">Aggregated verified carbon credits across global research coordinate zones.</p>
             </div>
             <div className="flex gap-2">
-              <button className="px-4 py-1.5 bg-surface-container rounded-full font-mono text-[9px] uppercase text-secondary">Monthly</button>
-              <button className="px-4 py-1.5 bg-primary text-white rounded-full font-mono text-[9px] uppercase">Quarterly</button>
+              {['Monthly', 'Quarterly'].map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setChartMode(mode)}
+                  className={`px-4 py-1.5 rounded-full font-mono text-[9px] uppercase ${chartMode === mode ? 'bg-primary text-white' : 'bg-surface-container text-secondary'}`}
+                >
+                  {mode}
+                </button>
+              ))}
             </div>
           </div>
 
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={growthData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f4ede1" />
                 <XAxis dataKey="month" tick={{ fontSize: 10, fontFamily: 'monospace' }} />
                 <YAxis tick={{ fontSize: 10, fontFamily: 'monospace' }} />
@@ -139,7 +212,7 @@ const Admin = () => {
             <p className="text-secondary text-xs">Real-time audit audit logs of community carbon credit claims.</p>
           </div>
           <button 
-            onClick={() => toast.success('Add manual administrative offset.')}
+            onClick={() => setNewEntryOpen(true)}
             className="bg-primary text-white px-5 py-2 rounded-full font-bold text-xs hover:bg-primary-container active:scale-95"
           >
             New Entry
@@ -158,7 +231,7 @@ const Admin = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/20">
-              {moderationList.map((entry) => (
+              {displayedModerationList.map((entry) => (
                 <tr key={entry.id} className="hover:bg-surface-container-low/10 transition-colors">
                   <td className="px-6 py-4 font-mono text-[11px] text-secondary">{entry.date}</td>
                   <td className="px-6 py-4">
@@ -238,7 +311,7 @@ const Admin = () => {
           <h3 className="font-literata text-lg font-bold text-[#b3dcba] leading-tight">Generate Official Audit Report</h3>
           <p className="text-[#b3dcba]/80 text-xs mt-2">Download official PDF diagnostics for reserve curators.</p>
           <button 
-            onClick={() => toast.success('Exporting audited system ledger metrics...')}
+            onClick={exportAudit}
             className="w-full py-2.5 bg-[#b3dcba] text-primary font-bold rounded-full font-mono text-[10px] uppercase tracking-wider hover:brightness-105 active:scale-95 transition-all mt-4 flex items-center justify-center gap-1.5"
           >
             <span className="material-symbols-outlined text-sm">download</span>
@@ -246,6 +319,41 @@ const Admin = () => {
           </button>
         </div>
       </div>
+
+      {newEntryOpen && (
+        <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center p-4">
+          <form onSubmit={createEntry} className="w-full max-w-lg bg-white rounded-3xl border border-outline-variant shadow-luxury p-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-literata text-2xl font-bold text-primary">New Audit Entry</h3>
+              <button type="button" onClick={() => setNewEntryOpen(false)} className="text-secondary">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            {[
+              ['organization', 'Organization'],
+              ['emissionData', 'Emission Data'],
+              ['category', 'Category'],
+              ['remarks', 'Remarks'],
+            ].map(([key, label]) => (
+              <input
+                key={key}
+                required={key !== 'remarks'}
+                type={key === 'emissionData' ? 'number' : 'text'}
+                value={entryForm[key]}
+                onChange={(e) => setEntryForm({ ...entryForm, [key]: e.target.value })}
+                className="w-full px-4 py-3 rounded-xl border border-outline-variant/40 text-sm focus:outline-none"
+                placeholder={label}
+              />
+            ))}
+            <select value={entryForm.status} onChange={(e) => setEntryForm({ ...entryForm, status: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-outline-variant/40 text-sm focus:outline-none">
+              <option>Pending</option>
+              <option>Verified</option>
+              <option>Flagged</option>
+            </select>
+            <button className="w-full py-3 bg-primary text-white rounded-xl font-bold">Create Entry</button>
+          </form>
+        </div>
+      )}
 
     </div>
   );

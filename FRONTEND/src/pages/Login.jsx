@@ -15,9 +15,9 @@ const Login = () => {
     }
   });
 
-  const onSubmit = (data) => {
+  const onSubmit = async (data) => {
     // Perform login with our mock auth provider
-    login(data.email, data.password, roleMode);
+    await login(data.email, data.password, roleMode);
     navigate('/dashboard');
   };
 
@@ -107,9 +107,9 @@ const Login = () => {
                 <label className="font-mono text-[10px] uppercase tracking-wider text-outline">
                   Curator Password
                 </label>
-                <a href="#" className="font-mono text-[9px] uppercase tracking-wider text-primary hover:underline">
+                <Link to="/forgot-password" className="font-mono text-[9px] uppercase tracking-wider text-primary hover:underline">
                   Forgot?
-                </a>
+                </Link>
               </div>
               <input
                 type="password"

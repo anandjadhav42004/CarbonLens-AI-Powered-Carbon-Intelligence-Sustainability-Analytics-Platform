@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
+import { useRealtimeSnapshot } from '../hooks/useRealtimeSnapshot';
+import { api } from '../services/api';
+import { downloadSimplePdf } from '../utils/report';
 
-const intelligenceMetrics = [
+const fallbackIntelligenceMetrics = [
   { icon: 'eco', label: 'Carbon Saved', value: '12,842', unit: 'kg' },
   { icon: 'analytics', label: 'Eco Score', value: '94', unit: '/100' },
   { icon: 'trending_up', label: 'Efficiency', value: '+12%', unit: '' },
@@ -11,25 +14,90 @@ const intelligenceMetrics = [
   { icon: 'bolt', label: 'Energy', value: '18%', unit: '' },
 ];
 
-const Insights = () => {
-  // Radar data representing habit sectors
-  const radarData = [
-    { subject: 'Mobility', value: 80, fullMark: 100 },
-    { subject: 'Nutrition', value: 95, fullMark: 100 },
-    { subject: 'Electricity', value: 65, fullMark: 100 },
-    { subject: 'Water Sourcing', value: 70, fullMark: 100 },
-    { subject: 'Waste Audit', value: 90, fullMark: 100 },
-  ];
+const fallbackRadarData = [
+  { subject: 'Mobility', value: 80, fullMark: 100 },
+  { subject: 'Nutrition', value: 95, fullMark: 100 },
+  { subject: 'Electricity', value: 65, fullMark: 100 },
+  { subject: 'Water Sourcing', value: 70, fullMark: 100 },
+  { subject: 'Waste Audit', value: 90, fullMark: 100 },
+];
 
-  // Document verification entries
-  const [documents] = useState([
-    { id: '1', name: 'Q3_Carbon_Telemetry_Report.pdf', size: '1.4 MB', date: '2023-09-30', status: 'Approved' },
-    { id: '2', name: 'Amazon_Basin_Curator_Audit.pdf', size: '2.8 MB', date: '2023-10-12', status: 'Approved' },
-    { id: '3', name: 'Station_04_Sensors_Operational.pdf', size: '920 KB', date: '2023-10-22', status: 'Pending Verification' },
-  ]);
+const fallbackDocuments = [
+  { id: '1', name: 'Q3_Carbon_Telemetry_Report.pdf', size: '1.4 MB', date: '2023-09-30', status: 'Approved' },
+  { id: '2', name: 'Amazon_Basin_Curator_Audit.pdf', size: '2.8 MB', date: '2023-10-12', status: 'Approved' },
+  { id: '3', name: 'Station_04_Sensors_Operational.pdf', size: '920 KB', date: '2023-10-22', status: 'Pending Verification' },
+];
+
+const Insights = () => {
+  const { snapshot, status, refresh } = useRealtimeSnapshot();
+  const fileInputRef = useRef(null);
+  const [sensorData, setSensorData] = useState(null);
+  const [forecast, setForecast] = useState(null);
+  const [documentAnalysis, setDocumentAnalysis] = useState(null);
+  const [loadingAction, setLoadingAction] = useState('');
+  const intelligenceMetrics = snapshot?.insights?.metrics || fallbackIntelligenceMetrics;
+  const radarData = sensorData?.categories || snapshot?.insights?.radarData || fallbackRadarData;
+  const documents = snapshot?.insights?.documents?.length ? snapshot.insights.documents : fallbackDocuments;
+  const diagnostics = snapshot?.insights?.diagnostics || [];
 
   const handleDownloadDoc = (name) => {
+    downloadSimplePdf('CarbonLens_Report.pdf', [
+      'CarbonLens Sustainability Report',
+      `Document: ${name}`,
+      `Generated: ${new Date().toLocaleString()}`,
+      `Eco Score: ${intelligenceMetrics[1]?.value || 'N/A'}`,
+      `Forecast: ${forecast?.nextMonthCarbonPrediction || 'Run forecast to generate'} kg CO2e`,
+      'Recommendation: prioritize the largest emissions category and keep weekly calculator logs current.',
+    ]);
     toast.success(`Downloading audited document: ${name}`);
+  };
+
+  const syncSensors = async () => {
+    setLoadingAction('sensors');
+    try {
+      const data = await api.syncSensors();
+      setSensorData(data);
+      refresh();
+      toast.success('Telemetry diagnostics synchronized.');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoadingAction('');
+    }
+  };
+
+  const executeForecast = async () => {
+    setLoadingAction('forecast');
+    try {
+      const data = await api.runForecast({
+        monthlyEmissions: snapshot?.dashboard?.monthlyEmissions || 320,
+        ecoScore: Number(intelligenceMetrics[1]?.value) || 78,
+      });
+      setForecast(data);
+      toast.success('Forecast execution complete.');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoadingAction('');
+    }
+  };
+
+  const uploadDocument = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setLoadingAction('document');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const data = await api.uploadDocument(formData);
+      setDocumentAnalysis({ fileName: file.name, ...data.analysis });
+      toast.success(data.message || 'AI Sustainability Analysis Complete');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoadingAction('');
+      event.target.value = '';
+    }
   };
 
   return (
@@ -39,13 +107,18 @@ const Insights = () => {
       <div className="border-b border-outline-variant/30 pb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <h2 className="font-literata text-3xl md:text-4xl font-bold text-primary">Sustainability Insights</h2>
-          <p className="text-secondary text-sm mt-1">Multi-dimensional sustainability lifecycle telemetry and verified audit logs.</p>
+          <p className="text-secondary text-sm mt-1">
+            Multi-dimensional sustainability lifecycle telemetry and verified audit logs.
+            <span className="font-mono text-[10px] uppercase tracking-wider text-primary ml-2">
+              {status === 'live' ? 'Live' : 'Backend Offline'}
+            </span>
+          </p>
         </div>
         <button 
-          onClick={() => toast.success('Telemetry diagnostics synchronized.')}
+          onClick={syncSensors}
           className="px-5 py-2.5 bg-primary text-white text-xs font-mono uppercase tracking-wider rounded-full hover:bg-primary-container shadow-soft"
         >
-          Sync Sensors
+          {loadingAction === 'sensors' ? 'Syncing...' : 'Sync Sensors'}
         </button>
       </div>
 
@@ -96,31 +169,34 @@ const Insights = () => {
             <p className="text-secondary text-xs mb-6">Machine-learned anomalies and latent resource optimizations.</p>
             
             <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-primary/5 border-l-4 border-primary">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-mono text-[9px] uppercase tracking-wider text-primary font-bold">Electricity Optimization</span>
-                  <span className="text-[10px] text-primary">Resolved</span>
+              {(diagnostics.length ? diagnostics : [
+                {
+                  label: 'Electricity Optimization',
+                  status: 'Resolved',
+                  tone: 'primary',
+                  copy: 'Latent energy capacity in water-heating coils optimized. Switched daily thermal operations schedule to local solar peak hours.'
+                },
+                {
+                  label: 'Mobility Latency',
+                  status: 'Action Needed',
+                  tone: 'tertiary',
+                  copy: 'Average weekly vehicle emissions spiked by 14%. Switch commute pathing coordinates on Boreal paths to rail transit.'
+                }
+              ]).map((item) => (
+                <div key={item.label} className={`p-4 rounded-xl ${item.tone === 'tertiary' ? 'bg-tertiary/5 border-tertiary' : 'bg-primary/5 border-primary'} border-l-4`}>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className={`font-mono text-[9px] uppercase tracking-wider ${item.tone === 'tertiary' ? 'text-tertiary' : 'text-primary'} font-bold`}>{item.label}</span>
+                    <span className={`text-[10px] ${item.tone === 'tertiary' ? 'text-tertiary' : 'text-primary'} font-bold`}>{item.status}</span>
+                  </div>
+                  <p className="text-xs text-on-surface leading-normal">{item.copy}</p>
                 </div>
-                <p className="text-xs text-on-surface leading-normal">
-                  Latent energy capacity in water-heating coils optimized. Switched daily thermal operations schedule to local solar peak hours.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-tertiary/5 border-l-4 border-tertiary">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-mono text-[9px] uppercase tracking-wider text-tertiary font-bold">Mobility Latency</span>
-                  <span className="text-[10px] text-tertiary font-bold">Action Needed</span>
-                </div>
-                <p className="text-xs text-on-surface leading-normal">
-                  Average weekly vehicle emissions spiked by 14%. Switch commute pathing coordinates on Boreal paths to rail transit.
-                </p>
-              </div>
+              ))}
             </div>
           </div>
 
           <div className="pt-6 border-t border-outline-variant/30 mt-6 flex justify-between items-center text-xs text-secondary">
-            <span>Last audit log update: today, 14:02 UTC</span>
-            <span className="font-mono text-[10px] text-primary font-bold">94% Efficiency Score</span>
+            <span>Last audit log update: {snapshot?.updatedAt ? new Date(snapshot.updatedAt).toLocaleTimeString() : 'today'}</span>
+            <span className="font-mono text-[10px] text-primary font-bold">{intelligenceMetrics[1]?.value || 94}% Efficiency Score</span>
           </div>
         </div>
       </div>
@@ -133,14 +209,16 @@ const Insights = () => {
               <span className="material-symbols-outlined mb-4 text-3xl">auto_awesome</span>
               <h3 className="font-literata text-2xl font-bold mb-3">AI Predictive Analysis</h3>
               <p className="text-sm opacity-90 leading-relaxed">
-                Based on current trajectory, CarbonLens predicts a 24% reduction in logistics emissions by Q4.
+                {forecast
+                  ? `Next month prediction: ${forecast.nextMonthCarbonPrediction} kg CO2e. Risk level: ${forecast.riskLevel}.`
+                  : 'Based on current trajectory, CarbonLens predicts a 24% reduction in logistics emissions by Q4.'}
               </p>
             </div>
             <button
-              onClick={() => toast.success('Forecast execution queued.')}
+              onClick={executeForecast}
               className="mt-6 bg-white text-primary px-5 py-2.5 rounded-full font-mono text-[10px] uppercase tracking-wider font-bold self-start"
             >
-              Execute Forecast
+              {loadingAction === 'forecast' ? 'Running...' : 'Execute Forecast'}
             </button>
           </div>
           <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -173,14 +251,32 @@ const Insights = () => {
             <h3 className="font-literata text-xl font-bold text-primary">Certified Audit Portal</h3>
             <p className="text-secondary text-xs">Official document ledgers submitted for IPCC verification standard compliance.</p>
           </div>
+          <input ref={fileInputRef} type="file" className="hidden" onChange={uploadDocument} />
           <button 
-            onClick={() => toast.success('Select audited PDF log to upload.')}
+            onClick={() => fileInputRef.current?.click()}
             className="px-4 py-2 border border-outline-variant bg-white text-on-surface font-mono text-[10px] uppercase tracking-wider hover:bg-surface-container rounded-xl flex items-center gap-2"
           >
             <span className="material-symbols-outlined text-sm">cloud_upload</span>
-            Upload Document
+            {loadingAction === 'document' ? 'Analyzing...' : 'Upload Document'}
           </button>
         </div>
+
+        {documentAnalysis && (
+          <div className="mx-6 mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
+              <p className="font-mono text-[9px] uppercase text-outline">Uploaded File</p>
+              <p className="text-primary font-bold text-sm truncate">{documentAnalysis.fileName}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
+              <p className="font-mono text-[9px] uppercase text-outline">Carbon Estimate</p>
+              <p className="text-primary font-bold text-sm">{documentAnalysis.carbonEstimate} kg</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
+              <p className="font-mono text-[9px] uppercase text-outline">AI Status</p>
+              <p className="text-primary font-bold text-sm">Analysis Complete</p>
+            </div>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">

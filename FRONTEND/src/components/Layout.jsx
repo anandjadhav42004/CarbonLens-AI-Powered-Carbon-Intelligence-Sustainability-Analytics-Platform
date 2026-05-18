@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { motion, AnimatePresence } from 'framer-motion';
+import AssistantPanel from './AssistantPanel';
 
 const Layout = ({ children }) => {
   const { user, logout } = useAuth();
@@ -23,7 +24,7 @@ const Layout = ({ children }) => {
 
   const handleLogoutClick = () => {
     logout();
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   return (
@@ -157,6 +158,7 @@ const Layout = ({ children }) => {
       <main className="flex-1 md:ml-64 pt-16 md:pt-0 min-h-screen flex flex-col p-4 md:p-8 max-w-7xl mx-auto w-full box-border">
         {children}
       </main>
+      <AssistantPanel />
     </div>
   );
 };

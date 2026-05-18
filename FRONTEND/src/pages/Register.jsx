@@ -8,8 +8,8 @@ const Register = () => {
 
   const { register, handleSubmit, formState: { errors } } = useForm();
 
-  const onSubmit = (data) => {
-    registerMock(data.name, data.email, data.password);
+  const onSubmit = async (data) => {
+    await registerMock(data.name, data.email, data.password);
     navigate('/dashboard');
   };
 
