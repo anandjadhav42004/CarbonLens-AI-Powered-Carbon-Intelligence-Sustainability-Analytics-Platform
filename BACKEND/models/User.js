@@ -14,4 +14,17 @@ const UserSchema = new mongoose.Schema({
   resetTokenExpires: { type: Date },
 }, { timestamps: true });
 
-module.exports = mongoose.model('User', UserSchema);
+const MongooseModel = mongoose.model('User', UserSchema);
+
+// Dynamic proxy wrapper to allow running in mock DB mode seamlessly
+const proxyUser = new Proxy({}, {
+  get(target, prop) {
+    if (process.env.MOCK_DB === 'true') {
+      return require('./mockDb').MockUser[prop];
+    }
+    return MongooseModel[prop];
+  }
+});
+
+module.exports = proxyUser;
+

@@ -18,4 +18,17 @@ const EmissionSchema = new mongoose.Schema({
   ecoScore:    { type: Number },
 }, { timestamps: true });
 
-module.exports = mongoose.model('Emission', EmissionSchema);
+const MongooseModel = mongoose.model('Emission', EmissionSchema);
+
+// Dynamic proxy wrapper to allow running in mock DB mode seamlessly
+const proxyEmission = new Proxy({}, {
+  get(target, prop) {
+    if (process.env.MOCK_DB === 'true') {
+      return require('./mockDb').MockEmission[prop];
+    }
+    return MongooseModel[prop];
+  }
+});
+
+module.exports = proxyEmission;
+
