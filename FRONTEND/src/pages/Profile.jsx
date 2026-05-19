@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/useAuth';
 import toast from 'react-hot-toast';
 import { useRealtimeSnapshot } from '../hooks/useRealtimeSnapshot';
@@ -24,6 +24,38 @@ const Profile = () => {
     { name: 'Community Network', value: 91, color: 'bg-secondary' }
   ];
   const streak = snapshot?.profile?.streak || 22;
+  const [circles, setCircles] = useState([]);
+  const [circlesLoading, setCirclesLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchCircles = async () => {
+      if (!user?.id) return;
+      setCirclesLoading(true);
+      try {
+        const data = await api.getUserCircles(user.id);
+        const mappedCircles = (data || []).map((membership) => {
+          const id = membership.circleId;
+          const meta = {
+            'Boreal Initiative': { members: '1,204', icon: 'forest' },
+            'Urban Canopy Project': { members: '840', icon: 'park' },
+            'Agri-Carbon Tech': { members: '412', icon: 'agriculture' },
+          }[id] || { members: '150', icon: 'groups' };
+
+          return {
+            name: id,
+            members: meta.members,
+            icon: meta.icon,
+          };
+        });
+        setCircles(mappedCircles);
+      } catch (err) {
+        console.error("Error fetching joined circles:", err);
+      } finally {
+        setCirclesLoading(false);
+      }
+    };
+    fetchCircles();
+  }, [user?.id]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -244,6 +276,52 @@ const Profile = () => {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* My Research Circles Section */}
+          <div className="bg-white border border-outline-variant rounded-3xl p-6 md:p-8 shadow-soft text-left">
+            <div className="flex justify-between items-end mb-6 border-b border-outline-variant/30 pb-4">
+              <h3 className="font-literata text-xl font-bold text-primary">My Research Circles</h3>
+              <span className="font-mono text-[10px] text-outline uppercase tracking-wider bg-surface-container-low px-3 py-1 rounded-full">
+                {circles.length} Circles Joined
+              </span>
+            </div>
+
+            {circlesLoading ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3">
+                <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin"></div>
+                <span className="font-mono text-[10px] text-secondary uppercase tracking-wider animate-pulse">Syncing research groups...</span>
+              </div>
+            ) : circles.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 px-4 text-center gap-3 bg-surface-container-low/20 rounded-2xl border border-dashed border-outline-variant/40">
+                <span className="material-symbols-outlined text-outline text-3xl">groups</span>
+                <div>
+                  <h4 className="font-literata text-sm font-bold text-primary">No Circles Joined</h4>
+                  <p className="text-secondary text-[11px] max-w-xs mt-1">Visit the Community section to join research circles and base stations.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {circles.map((circle) => (
+                  <div
+                    key={circle.name}
+                    className="p-4 bg-surface-container-low border border-outline-variant/30 rounded-2xl flex items-center gap-4 hover:shadow-sm transition-all"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center border border-outline-variant/30 shrink-0">
+                      <span className="material-symbols-outlined text-primary text-xl">
+                        {circle.icon}
+                      </span>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-xs text-on-surface">{circle.name}</h4>
+                      <p className="font-mono text-[9px] text-outline uppercase tracking-wider mt-1">
+                        {circle.members} Members
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
         </div>

@@ -1,12 +1,14 @@
 const router = require('express').Router();
 const CircleMembership = require('../models/CircleMembership');
+const auth = require('../middleware/auth');
 const { hasMongoConnection } = require('../utils/dbState');
 
 const memoryMemberships = [];
 
-router.post('/join', async (req, res) => {
+router.post('/join', auth, async (req, res) => {
   try {
-    const { userId = 'demo-user', circleId } = req.body;
+    const { circleId } = req.body;
+    const userId = req.userId;
     if (!circleId) return res.status(400).json({ msg: 'circleId is required' });
 
     if (hasMongoConnection()) {
@@ -27,7 +29,7 @@ router.post('/join', async (req, res) => {
   }
 });
 
-router.get('/user/:id', async (req, res) => {
+router.get('/user/:id', auth, async (req, res) => {
   try {
     const memberships = hasMongoConnection()
       ? await CircleMembership.find({ userId: req.params.id })

@@ -1,12 +1,14 @@
 const router = require('express').Router();
 const Ledger = require('../models/Ledger');
+const auth = require('../middleware/auth');
 const { hasMongoConnection } = require('../utils/dbState');
 
 const memoryLedger = [];
 
-router.post('/', async (req, res) => {
+router.post('/', auth, async (req, res) => {
   try {
-    const { userId = 'demo-user', action, category, carbonValue, sustainabilityScore = 70 } = req.body;
+    const userId = req.userId;
+    const { action, category, carbonValue, sustainabilityScore = 70 } = req.body;
     if (!action || !category || carbonValue === undefined) {
       return res.status(400).json({ msg: 'action, category and carbonValue are required' });
     }
@@ -31,7 +33,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.get('/user/:id', async (req, res) => {
+router.get('/user/:id', auth, async (req, res) => {
   try {
     const entries = hasMongoConnection()
       ? await Ledger.find({ userId: req.params.id }).sort({ timestamp: -1 }).limit(50)

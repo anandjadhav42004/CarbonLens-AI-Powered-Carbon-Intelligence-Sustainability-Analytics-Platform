@@ -1,10 +1,11 @@
 const router = require('express').Router();
 const AuditEntry = require('../models/AuditEntry');
+const auth = require('../middleware/auth');
 const { hasMongoConnection } = require('../utils/dbState');
 
 const memoryAuditEntries = [];
 
-router.post('/entries', async (req, res) => {
+router.post('/entries', auth, async (req, res) => {
   try {
     const { organization, emissionData, status = 'Pending', category, remarks = '' } = req.body;
     if (!organization || emissionData === undefined || !category) {
@@ -21,7 +22,7 @@ router.post('/entries', async (req, res) => {
   }
 });
 
-router.get('/entries', async (req, res) => {
+router.get('/entries', auth, async (req, res) => {
   try {
     const entries = hasMongoConnection()
       ? await AuditEntry.find({}).sort({ createdAt: -1 }).limit(50)
@@ -43,7 +44,7 @@ async function updateStatus(req, res, status) {
   return res.json(entry || { _id: id, status });
 }
 
-router.patch('/verify/:id', (req, res) => updateStatus(req, res, 'Verified').catch((err) => res.status(500).json({ msg: err.message })));
-router.patch('/flag/:id', (req, res) => updateStatus(req, res, 'Flagged').catch((err) => res.status(500).json({ msg: err.message })));
+router.patch('/verify/:id', auth, (req, res) => updateStatus(req, res, 'Verified').catch((err) => res.status(500).json({ msg: err.message })));
+router.patch('/flag/:id', auth, (req, res) => updateStatus(req, res, 'Flagged').catch((err) => res.status(500).json({ msg: err.message })));
 
 module.exports = router;

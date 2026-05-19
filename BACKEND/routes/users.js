@@ -1,11 +1,12 @@
 const router = require('express').Router();
 const User = require('../models/User');
 const upload = require('../utils/upload');
+const auth = require('../middleware/auth');
 const { hasMongoConnection } = require('../utils/dbState');
 
 const memoryProfiles = new Map();
 
-router.get('/profile/:id', async (req, res) => {
+router.get('/profile/:id', auth, async (req, res) => {
   try {
     if (hasMongoConnection()) {
       const user = await User.findById(req.params.id).select('-password -resetToken');
@@ -17,9 +18,10 @@ router.get('/profile/:id', async (req, res) => {
   }
 });
 
-router.put('/profile', upload.single('avatar'), async (req, res) => {
+router.put('/profile', auth, upload.single('avatar'), async (req, res) => {
   try {
-    const { id = 'demo-user', name, bio, organization, sustainabilityGoals } = req.body;
+    const id = req.userId;
+    const { name, bio, organization, sustainabilityGoals } = req.body;
     const updates = {
       ...(name ? { name } : {}),
       ...(bio !== undefined ? { bio } : {}),

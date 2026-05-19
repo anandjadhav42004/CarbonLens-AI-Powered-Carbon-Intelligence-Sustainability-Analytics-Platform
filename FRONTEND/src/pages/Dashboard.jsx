@@ -22,6 +22,10 @@ const Dashboard = () => {
   const { user, setUser } = useAuth();
   const [liveSummary, setLiveSummary] = useState(null);
   const [liveStatus, setLiveStatus] = useState(getAuthToken() ? 'syncing' : 'preview');
+  const [activeTab, setActiveTab] = useState('journal');
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
   
   // State for mock log ledger
   const [logs, setLogs] = useState([
@@ -139,6 +143,25 @@ const Dashboard = () => {
     };
   }, [user?.id]);
 
+  const fetchHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await api.getEmissionHistory();
+      setHistory(data || []);
+    } catch (err) {
+      console.error("Error fetching history:", err);
+      toast.error("Could not fetch emissions history from live backend.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'history' && getAuthToken()) {
+      fetchHistory();
+    }
+  }, [activeTab]);
+
   const handleAddLog = async (e) => {
     e.preventDefault();
     if (!title || !value) {
@@ -208,8 +231,36 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Tabs Selector */}
+      <div className="flex gap-4 border-b border-outline-variant/20 pb-1">
+        <button
+          onClick={() => setActiveTab('journal')}
+          className={`pb-3 font-mono text-xs uppercase tracking-wider font-bold transition-all relative ${
+            activeTab === 'journal' ? 'text-primary' : 'text-secondary hover:text-primary'
+          }`}
+        >
+          Journal Ledger
+          {activeTab === 'journal' && (
+            <motion.div layoutId="dashboard-tab-glow" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`pb-3 font-mono text-xs uppercase tracking-wider font-bold transition-all relative ${
+            activeTab === 'history' ? 'text-primary' : 'text-secondary hover:text-primary'
+          }`}
+        >
+          History Log
+          {activeTab === 'history' && (
+            <motion.div layoutId="dashboard-tab-glow" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+          )}
+        </button>
+      </div>
+
+      {activeTab === 'journal' ? (
+        <>
+          {/* Metrics Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white border border-outline-variant rounded-2xl p-6 shadow-soft hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex justify-between items-start mb-2">
             <span className="font-mono text-[10px] uppercase tracking-wider text-outline">Emissions This Month</span>
@@ -475,8 +526,137 @@ const Dashboard = () => {
           </AnimatePresence>
         </div>
       </div>
+    </>
+  ) : (
+    <div className="bg-white border border-outline-variant rounded-[24px] shadow-soft overflow-hidden p-6 md:p-8 flex flex-col gap-6">
+      <div className="flex justify-between items-center border-b border-outline-variant/30 pb-4">
+        <div>
+          <h3 className="font-literata text-xl font-bold text-primary">Carbon Telemetry Coordinates</h3>
+          <p className="text-secondary text-xs">Certified historical trace of calculated carbon emissions.</p>
+        </div>
+        <span className="font-mono text-[10px] text-outline uppercase tracking-wider bg-surface-container-low px-3 py-1 rounded-full">
+          {history.length} Logs
+        </span>
+      </div>
+
+      {historyLoading ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-4">
+          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <span className="font-mono text-xs text-secondary uppercase tracking-wider animate-pulse">Syncing historical coordinates...</span>
+        </div>
+      ) : history.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center gap-4 bg-surface-container-low/20 rounded-2xl border border-dashed border-outline-variant/40">
+          <span className="material-symbols-outlined text-outline text-5xl">cloud_off</span>
+          <div>
+            <h4 className="font-literata text-lg font-bold text-primary">No Coordinates Recorded</h4>
+            <p className="text-secondary text-xs max-w-sm mt-1">You haven't logged any carbon estimates to the backend database yet.</p>
+          </div>
+          <button
+            onClick={() => {
+              window.location.hash = '#/calculator';
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
+            }}
+            className="mt-2 px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-xl shadow-soft hover:shadow-lg transition-all font-mono uppercase tracking-wider"
+          >
+            Go to Calculator
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {/* Desktop/Tablet Table view */}
+          <div className="overflow-x-auto rounded-xl border border-outline-variant/30">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-surface-container-low/40 border-b border-outline-variant/30 font-mono text-[9px] uppercase tracking-wider text-outline">
+                  <th className="px-6 py-4">Sector</th>
+                  <th className="px-6 py-4">Calculation Date</th>
+                  <th className="px-6 py-4 text-right">Value (CO₂e)</th>
+                  <th className="px-6 py-4 text-center">Estimation Tier</th>
+                  <th className="px-6 py-4 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant/20 text-xs">
+                {history.slice((historyPage - 1) * 10, historyPage * 10).map((entry) => {
+                  const dateStr = new Date(entry.date).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                  });
+                  
+                  const categoryIcons = {
+                    transport: 'directions_car',
+                    electricity: 'bolt',
+                    diet: 'restaurant',
+                    flights: 'flight',
+                    shopping: 'shopping_bag',
+                    waste: 'delete_outline',
+                  };
+                  const icon = categoryIcons[entry.category?.toLowerCase()] || 'eco';
+                  const sectorLabel = entry.category ? entry.category.replace(/_/g, ' ') : 'general';
+
+                  return (
+                    <tr key={entry.id || entry._id} className="hover:bg-surface-container-low/10 transition-colors">
+                      <td className="px-6 py-4 font-medium text-on-surface">
+                        <div className="flex items-center gap-3">
+                          <span className="material-symbols-outlined text-primary text-[18px]">{icon}</span>
+                          <span className="capitalize">{sectorLabel}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-secondary font-mono text-[11px]">{dateStr}</td>
+                      <td className="px-6 py-4 text-right font-mono font-bold text-primary">
+                        {Number(entry.amountKg || entry.totalCO2 || 0).toFixed(1)} kg
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <span className="font-mono text-[10px] uppercase text-secondary bg-surface-container/60 px-2 py-0.5 rounded">
+                          {entry.estimatedBy === 'carbon_interface' ? 'API Tier I' : 'Local Factor'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 rounded border font-bold ${
+                          entry.estimatedBy === 'carbon_interface'
+                            ? 'border-primary/20 text-primary bg-primary/5'
+                            : 'border-yellow-600/20 text-yellow-800 bg-yellow-50'
+                        }`}>
+                          {entry.estimatedBy === 'carbon_interface' ? 'Verified' : 'Pending'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          {Math.ceil(history.length / 10) > 1 && (
+            <div className="flex justify-between items-center border-t border-outline-variant/20 pt-4 font-mono text-xs">
+              <button
+                disabled={historyPage === 1}
+                onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                className="flex items-center gap-1.5 px-4 py-2 border border-outline-variant/30 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-container-low transition-colors"
+              >
+                <span className="material-symbols-outlined text-sm">arrow_back</span>
+                <span>Prev</span>
+              </button>
+              <span className="text-secondary text-[11px]">
+                Page {historyPage} of {Math.ceil(history.length / 10)}
+              </span>
+              <button
+                disabled={historyPage === Math.ceil(history.length / 10)}
+                onClick={() => setHistoryPage((p) => Math.min(Math.ceil(history.length / 10), p + 1))}
+                className="flex items-center gap-1.5 px-4 py-2 border border-outline-variant/30 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-container-low transition-colors"
+              >
+                <span>Next</span>
+                <span className="material-symbols-outlined text-sm">arrow_forward</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
-  );
+  )}
+</div>
+);
 };
 
 export default Dashboard;
